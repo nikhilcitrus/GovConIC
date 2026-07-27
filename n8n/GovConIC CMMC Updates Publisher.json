@@ -1,0 +1,416 @@
+{
+  "name": "GovConIC CMMC Updates Publisher",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "hours",
+              "hoursInterval": 6
+            }
+          ]
+        }
+      },
+      "id": "f3d0efcb-cce8-4989-b0a0-41a6952623a6",
+      "name": "Schedule Trigger",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        -1920,
+        80
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const staticData = $getWorkflowStaticData('global');\\nconst topics = [\\n  { id: 'cmmc-01', title: 'CMMC readiness is a board-level operating issue', sourceUrl: 'https://www.govconic.com/cmmc-readiness-board-level-operating-issue' },\\n  { id: 'cmmc-02', title: 'The quiet CMMC gap is often in evidence handling', sourceUrl: 'https://www.govconic.com/quiet-cmmc-gap-evidence-handling' },\\n  { id: 'cmmc-03', title: 'Why CMMC scoping assumptions drift over time', sourceUrl: 'https://www.govconic.com/why-cmmc-scoping-assumptions-drift' },\\n  { id: 'cmmc-04', title: 'The overlooked CMMC control that creates audit friction', sourceUrl: 'https://www.govconic.com/overlooked-cmmc-control-audit-friction' }\\n];\\nconst usedIds = Array.isArray(staticData.usedIds) ? staticData.usedIds : [];\\nlet available = topics.filter((topic) => !usedIds.includes(topic.id));\\nif (available.length === 0) {\\n  staticData.usedIds = [];\\n  available = topics;\\n}\\nconst topic = available[0];\\nconst nextUsedIds = Array.from(new Set([...(usedIds || []), topic.id]));\\nstaticData.usedIds = nextUsedIds;\\nreturn [{ json: { topicId: topic.id, topicTitle: topic.title, topicSourceUrl: topic.sourceUrl } }];"
+      },
+      "id": "49089cd0-04ec-4807-acfc-78020a979601",
+      "name": "Topic Rotator",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1680,
+        80
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.groq.com/openai/v1/chat/completions",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\"model\":\"llama-3.3-70b-versatile\",\"temperature\":0.8,\"messages\":[{\"role\":\"system\",\"content\":\"You are writing for GovConIC.com. Write with a contrarian, unobvious, engineering-driven, under-the-radar voice. Do not sound like vendor PR. Produce valid JSON only. The JSON must contain: a title string, five alternative headlines in an array called headlineOptions, and an array called blocks with exactly 11 objects. Each block object must include heading and body fields. Make the article 1000 to 1500 words total. The article should be deeply relevant to the provided CMMC topic and grounded in federal compliance realities.\"},{\"role\":\"user\",\"content\":\"Topic title: {{$json.topicTitle}}\\\nSource URL: {{$json.topicSourceUrl}}\\\nWrite a strong article that covers the topic from an original and practical viewpoint.\"}]}",
+        "options": {}
+      },
+      "id": "c07cd7a3-07cc-433d-aa90-6052cddbffda",
+      "name": "Groq Generate Article",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -1440,
+        80
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "function extractPayload(data) {\\n  if (typeof data === 'string') {\\n    try {\\n      return JSON.parse(data);\\n    } catch (error) {\\n      return null;\\n    }\\n  }\\n  if (data && data.choices && data.choices[0] && data.choices[0].message && data.choices[0].message.content) {\\n    try {\\n      return JSON.parse(data.choices[0].message.content);\\n    } catch (error) {\\n      return data.choices[0].message.content;\\n    }\\n  }\\n  return data;\\n}\\nfunction countWords(text) {\\n  const normalized = String(text || '').replace(/<[^>]+>/g, ' ').replace(/\\s+/g, ' ').trim();\\n  return normalized ? normalized.split(/\\s+/).length : 0;\\n}\\nconst item = items[0];\\nconst payload = extractPayload(item.json);\\nconst articleData = payload && typeof payload === 'object' ? payload : {};\\nconst blocks = Array.isArray(articleData.blocks) ? articleData.blocks : [];\\nconst bodyHtml = blocks.map((block) => {\\n  const heading = String(block.heading || '').trim();\\n  const body = String(block.body || '').trim();\\n  return `<h2>${heading}</h2><p>${body.replace(/\\n/g, '</p><p>')}</p>`;\\n}).join('');\\nreturn [{ json: {\\n  topicTitle: item.json.topicTitle || '',\\n  topicSourceUrl: item.json.topicSourceUrl || '',\\n  articleTitle: articleData.title || 'CMMC Update',\\n  headlineOptions: Array.isArray(articleData.headlineOptions) ? articleData.headlineOptions : [],\\n  articleBodyHtml: bodyHtml,\\n  articleWordCount: countWords(bodyHtml)\\n} }];"
+      },
+      "id": "22714f32-5c99-4e91-bfeb-d22c93fbfd51",
+      "name": "Parse Groq Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1200,
+        80
+      ]
+    },
+    {
+      "parameters": {
+        "url": "https://www.govconic.com/wp-json/wp/v2/posts",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {}
+          ]
+        },
+        "options": {}
+      },
+      "id": "461f261e-e444-4bbf-b132-a81b27afee9b",
+      "name": "Fetch Previous CMMC Posts",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -960,
+        80
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const item = items[0];\\nconst posts = Array.isArray(item.json) ? item.json : (Array.isArray(item.json?.body) ? item.json.body : (Array.isArray(item.json?.posts) ? item.json.posts : []));\\nreturn [{ json: { ...item.json, previousPosts: posts } }];"
+      },
+      "id": "fa42c677-3a8a-4e87-ad5b-a58b4b1951c0",
+      "name": "Prepare Previous Posts",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -720,
+        80
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "function normalizeTitle(value) {\n  return String(value || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();\n}\nfunction skeletonOverlap(a, b) {\n  const left = normalizeTitle(a).split(/\\\\s+/).filter(Boolean);\n  const right = normalizeTitle(b).split(/\\\\s+/).filter(Boolean);\n  if (left.length === 0 || right.length === 0) return 0;\n  const shared = left.filter((word) => right.includes(word)).length;\n  return shared / Math.max(1, Math.min(left.length, right.length));\n}\nfunction stripHtml(html) {\n  return String(html || '').replace(/<[^>]+>/g, ' ').replace(/\\\\s+/g, ' ').trim();\n}\nfunction countWords(text) {\n  const normalized = stripHtml(text);\n  return normalized ? normalized.split(/\\\\s+/).length : 0;\n}\nconst item = items[0];\nconst previousPosts = Array.isArray(item.json?.previousPosts) ? item.json.previousPosts : [];\nconst articleTitle = String(item.json.articleTitle || '').trim();\nconst body = String(item.json.articleBodyHtml || '').trim();\nconst headlineOptions = Array.isArray(item.json.headlineOptions) ? item.json.headlineOptions : [];\nconst wordCount = countWords(body);\nconst promotionalPatterns = /(best-in-class|game-changing|revolutionary|cutting-edge|leading|innovative|trusted|premium|world-class)/i;\nconst articleText = stripHtml(body).toLowerCase();\nconst topicText = `${item.json.topicTitle || ''} ${item.json.topicSourceUrl || ''}`.toLowerCase();\nconst topicRelevant = topicText.includes('cmmc') || /cmmc|cyber|federal|nist|assessment|dod|ssc/.test(articleText);\nconst titleDuplicate = previousPosts.some((post) => {\n  const priorTitle = post?.title?.rendered || post?.title || '';\n  return skeletonOverlap(articleTitle, priorTitle) > 0.6;\n});\nconst promoHit = promotionalPatterns.test(stripHtml(body));\nconst passes = headlineOptions.length === 5 && wordCount >= 1000 && wordCount <= 1500 && topicRelevant && !promoHit && !titleDuplicate;\nreturn [{ json: { passEditorialGate: passes, reason: passes ? 'pass' : 'review', articleTitle, articleBodyHtml: body, headlineOptions, articleWordCount: wordCount, topicRelevant, promoHit, titleDuplicate, previousPosts } }];"
+      },
+      "id": "7e92cd06-2c83-40c6-9655-9258912715d5",
+      "name": "Editorial Gate",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -480,
+        80
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "string": [
+            {
+              "value1": "={{$json.passEditorialGate}}",
+              "operation": "equal",
+              "value2": true
+            }
+          ],
+          "combinator": "and",
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 1
+          }
+        },
+        "options": {}
+      },
+      "id": "0b234adb-355a-40d5-a3e4-c6e070ddc1c7",
+      "name": "If Editorial Gate Passes",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        -240,
+        80
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.groq.com/openai/v1/chat/completions",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\"model\":\"llama-3.3-70b-versatile\",\"temperature\":0.1,\"messages\":[{\"role\":\"system\",\"content\":\"You are an internal-linking assistant for GovConIC.com. Return strict JSON only. Return an object with a links array. Each link must include anchor and url. Only use URLs from the provided candidate posts. Use at most four links and avoid hallucinations.\"},{\"role\":\"user\",\"content\":\"Article title: {{$json.articleTitle}}\\\nArticle body HTML: {{$json.articleBodyHtml}}\\\nCandidate posts: {{$json.previousPosts}}\"}]}",
+        "options": {}
+      },
+      "id": "d940b3a4-52a3-4447-a619-1232752ab23b",
+      "name": "Groq Interlinking",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "function extractPayload(data) {\n  if (typeof data === 'string') {\n    try { return JSON.parse(data); } catch (error) { return null; }\n  }\n  if (data && data.choices && data.choices[0] && data.choices[0].message && data.choices[0].message.content) {\n    try { return JSON.parse(data.choices[0].message.content); } catch (error) { return null; }\n  }\n  return data;\n}\nfunction stripHtml(html) {\n  return String(html || '').replace(/<[^>]+>/g, ' ').replace(/\\\\s+/g, ' ').trim();\n}\nconst item = items[0];\nconst payload = extractPayload(item.json);\nconst links = Array.isArray(payload && payload.links) ? payload.links : [];\nlet html = String(item.json.articleBodyHtml || '').trim();\nfor (const link of links) {\n  const anchor = String(link.anchor || '').trim();\n  const url = String(link.url || '').trim();\n  if (!anchor || !url) continue;\n  const pattern = new RegExp(anchor.replace(/[.*+?^${}()|[\\]\\]/g, '\\\\$&'), 'i');\n  if (pattern.test(html)) {\n    html = html.replace(pattern, `<a href=\"${url}\">${anchor}</a>`);\n  }\n}\nreturn [{ json: { ...item.json, articleBodyHtml: html, internalLinks: links } }];"
+      },
+      "id": "2c23868d-7210-4fef-9472-c274ebf34a24",
+      "name": "Apply Internal Links",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        240,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "function stripHtml(html) {\n  return String(html || '').replace(/<[^>]+>/g, ' ').replace(/\\\\s+/g, ' ').trim();\n}\nfunction normalizeSpace(text) {\n  return String(text || '').replace(/\\\\s+/g, ' ').trim();\n}\nfunction ensureSentence(text, minLen, maxLen, suffix) {\n  const base = normalizeSpace(text);\n  const candidate = base.replace(/\\\\s+/g, ' ').trim();\n  const trimmed = candidate.length > maxLen ? candidate.slice(0, maxLen).trim() : candidate;\n  const finalText = trimmed.replace(/\\\\s+([,.;:!?])/, '$1');\n  if (finalText.length < minLen) {\n    return `${finalText} ${suffix}`.slice(0, maxLen).trim();\n  }\n  if (!/[.!?]$/.test(finalText)) {\n    return `${finalText}.`;\n  }\n  return finalText;\n}\nconst item = items[0];\nconst titleBase = `${item.json.articleTitle || 'CMMC Update'} for GovConIC.com`;\nconst bodyText = stripHtml(item.json.articleBodyHtml || '');\nconst descriptionBase = bodyText.length > 180 ? bodyText.slice(0, 180) : bodyText;\nconst seoTitle = ensureSentence(titleBase, 50, 60, 'GovConIC.com');\nconst seoDescription = ensureSentence(descriptionBase, 125, 143, 'GovConIC.com');\nreturn [{ json: { ...item.json, seoTitle, seoDescription } }];"
+      },
+      "id": "737ef5b1-76ce-4e72-be65-7fac8622ab12",
+      "name": "Build SEO Metadata",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        480,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://www.govconic.com/wp-json/wp/v2/posts",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\"title\":\"{{$json.articleTitle}}\",\"content\":\"{{$json.articleBodyHtml}}\",\"status\":\"publish\",\"categories\":[52],\"slug\":\"{{$json.articleTitle}}\"}",
+        "options": {}
+      },
+      "id": "b5a426c3-a379-4e84-be21-b346ca22e18b",
+      "name": "Create WordPress Post",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        720,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://www.govconic.com/wp-json/rankmath/v1/updateMeta",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\"id\":\"{{$json.body.id}}\",\"title\":\"{{$json.seoTitle}}\",\"description\":\"{{$json.seoDescription}}\"}",
+        "options": {}
+      },
+      "id": "37e959d9-9988-429b-929c-02ae521f401b",
+      "name": "Set Rank Math SEO",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        960,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "return [{ json: { status: 'published', title: items[0].json.articleTitle } }];"
+      },
+      "id": "0971a2ca-390c-4dae-94b4-2b563d52ee14",
+      "name": "Log Success",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1200,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "return [{ json: { status: 'skipped', reason: items[0].json.reason } }];"
+      },
+      "id": "9a171695-8fd6-431f-84ff-ee321ffa0fde",
+      "name": "Log Skip",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        0,
+        240
+      ]
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Schedule Trigger": {
+      "main": [
+        [
+          {
+            "node": "Topic Rotator",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Topic Rotator": {
+      "main": [
+        [
+          {
+            "node": "Groq Generate Article",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Groq Generate Article": {
+      "main": [
+        [
+          {
+            "node": "Parse Groq Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Groq Response": {
+      "main": [
+        [
+          {
+            "node": "Fetch Previous CMMC Posts",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Previous CMMC Posts": {
+      "main": [
+        [
+          {
+            "node": "Prepare Previous Posts",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Previous Posts": {
+      "main": [
+        [
+          {
+            "node": "Editorial Gate",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Editorial Gate": {
+      "main": [
+        [
+          {
+            "node": "If Editorial Gate Passes",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If Editorial Gate Passes": {
+      "main": [
+        [
+          {
+            "node": "Groq Interlinking",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Log Skip",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Groq Interlinking": {
+      "main": [
+        [
+          {
+            "node": "Apply Internal Links",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Apply Internal Links": {
+      "main": [
+        [
+          {
+            "node": "Build SEO Metadata",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build SEO Metadata": {
+      "main": [
+        [
+          {
+            "node": "Create WordPress Post",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create WordPress Post": {
+      "main": [
+        [
+          {
+            "node": "Set Rank Math SEO",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Set Rank Math SEO": {
+      "main": [
+        [
+          {
+            "node": "Log Success",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": false
+  },
+  "versionId": "242f05c5-bdfe-4339-810c-df249a15de81",
+  "meta": {
+    "instanceId": "e32925d3ab0c5c7e7b5eae74386e4b13013f10af0e587d3699ea2213b5c5cd94"
+  },
+  "nodeGroups": [],
+  "id": "umylJWJSke9l2aBW",
+  "tags": []
+}
