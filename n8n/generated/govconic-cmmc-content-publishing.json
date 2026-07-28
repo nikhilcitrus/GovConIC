@@ -1,0 +1,834 @@
+{
+  "name": "GovConIC CMMC Content Publishing",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "minutes",
+              "minutesInterval": 180
+            }
+          ]
+        }
+      },
+      "typeVersion": 1.3,
+      "position": [
+        -2980,
+        400
+      ],
+      "id": "n1",
+      "name": "Schedule Trigger",
+      "type": "n8n-nodes-base.scheduleTrigger"
+    },
+    {
+      "parameters": {},
+      "typeVersion": 1,
+      "position": [
+        -2760,
+        600
+      ],
+      "id": "n2",
+      "name": "Manual Trigger",
+      "type": "n8n-nodes-base.manualTrigger"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Merges editorial-config.json / validation-config.json / provider-config.json values.\n// NOTE: these embedded values must be kept in sync with\n// .specify/workflows/cmmc-content-publishing/config/*.json — those files are the\n// documented source of truth; n8n Code nodes cannot require() repo files at runtime.\nconst editorialConfig = {\n  brand: 'GovConIC — The Government Contractor Intelligence Center',\n  audience: 'mid-market government contractors with approximately $20M-$500M in revenue',\n  voiceDescription: 'authoritative, analytical, opinionated, evidence-conscious, practical, non-promotional',\n  defaultByline: $env.CMMC_DEFAULT_BYLINE || 'Shahid Shah',\n  categoryId: Number($env.WORDPRESS_CATEGORY_ID) || 52,\n  formats: [\n    'cmmc-policy-or-requirement-update','step-by-step-explainer','contrarian-analysis',\n    'data-driven-analysis','composite-contractor-case-study','narrow-cmmc-qa',\n    'multi-perspective-source-analysis'\n  ],\n  multiPerspectiveFormatMarker: 'multi-perspective-source-analysis',\n  leadAngles: ['Unobvious', 'Under the Radar', 'Innovative'],\n  topics: [\n    'SPRS score submission accuracy','POA&M closure timelines under CMMC Level 2',\n    'C3PAO surveillance assessment findings trends','Scoping guide boundary disputes for CUI enclaves',\n    'DIBCAC assessment readiness gaps','False Claims Act exposure from inaccurate self-attestations',\n    'Cyber AB certification backlog impact on small contractors',\n    'NIST SP 800-171 control inheritance from cloud providers',\n    'CMMC Level 3 assessment cost drivers','Subcontractor flow-down compliance verification burden'\n  ],\n  avoidedBaselineTopics: [\n    'What is CMMC 2.0','CMMC compliance levels overview','CMMC assessment process basics','CMMC certification cost overview'\n  ],\n  cacheLimits: { recentHeadlines: 15, pendingFollowOnTopics: 30, duplicateHistory: 300 }\n};\n\nconst validationConfig = {\n  paragraphCount: 4, h2Count: 2, statCount: 1, pullquoteCount: 1, calloutCount: 1,\n  paragraphWordMin: 20, paragraphWordMax: 50, totalWordMin: 100, totalWordMax: 200, wordCountTolerance: 0,\n  subtitleWordMin: 30, subtitleWordMax: 40,\n  cmmcTerms: ['CMMC','C3PAO','POA&M','SSP','NIST SP 800-171','NIST SP 800-172','scoring methodology','Level 1','Level 2','Level 3','assessment','certification','compliance','CUI','Controlled Unclassified Information','Defense Industrial Base','Cyber AB','scoping guide'],\n  prohibitedPatterns: ['press release','partnership announcement','series a','series b','funding round','raises $','announces partnership','proud to announce','top 10','game-changer','revolutionary','disrupting government','according to a recent report','in a recent announcement','sources say','experts agree','industry leaders say'],\n  companionAssets: { minAltTitles: 5, minLinkedinPostChars: 50, minNewsletterSummaryChars: 30, minDiagrams: 1, minFollowOnIdeas: 5 }\n};\n\nconst providerConfig = {\n  model: $env.GROQ_MODEL || 'llama-3.3-70b-versatile',\n  baseUrl: $env.GROQ_BASE_URL || 'https://api.groq.com/openai/v1/chat/completions',\n  temperature: 0.7, maxTokens: 2000, timeoutMs: 30000, retryCount: 3, retryDelayMs: 5000\n};\n\nconst wordpressConfig = {\n  baseUrl: $env.WORDPRESS_BASE_URL,\n  categoryId: Number($env.WORDPRESS_CATEGORY_ID) || 52\n};\n\nif (!wordpressConfig.baseUrl) {\n  throw new Error('Load Workflow Configuration: WORDPRESS_BASE_URL environment variable is required — failing fast rather than silently proceeding');\n}\n\nconst dryRun = String($env.CMMC_WORKFLOW_DRY_RUN).toLowerCase() === 'true';\nconst runId = $execution.id + '-' + $workflow.id;\n\nreturn [{ json: { editorialConfig, validationConfig, providerConfig, wordpressConfig, dryRun, runId } }];"
+      },
+      "typeVersion": 2,
+      "position": [
+        -2540,
+        500
+      ],
+      "id": "n3",
+      "name": "Load Workflow Configuration",
+      "type": "n8n-nodes-base.code"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Inlined port of .specify/skills/workflow-context-manager/scripts/context-manager.js\n// (kept in sync manually; the skill script is the tested source of truth).\nconst cfg = $input.first().json;\nconst staticData = $getWorkflowStaticData('global');\n\nfunction trimToLimit(list, limit) {\n  if (!Array.isArray(list)) return [];\n  if (typeof limit !== 'number' || limit <= 0) return list.slice();\n  return list.length > limit ? list.slice(list.length - limit) : list.slice();\n}\n\nconst formatRotationIndex = Number.isInteger(staticData.formatRotationIndex) ? staticData.formatRotationIndex : 0;\nconst leadAngleRotationIndex = Number.isInteger(staticData.leadAngleRotationIndex) ? staticData.leadAngleRotationIndex : 0;\n\nconst chosenFormat = cfg.editorialConfig.formats[formatRotationIndex % cfg.editorialConfig.formats.length];\nconst chosenLeadAngle = cfg.editorialConfig.leadAngles[leadAngleRotationIndex % cfg.editorialConfig.leadAngles.length];\n\nstaticData.formatRotationIndex = (formatRotationIndex + 1) % cfg.editorialConfig.formats.length;\nstaticData.leadAngleRotationIndex = (leadAngleRotationIndex + 1) % cfg.editorialConfig.leadAngles.length;\n\nconst recentHeadlines = trimToLimit(staticData.recentHeadlines, cfg.editorialConfig.cacheLimits.recentHeadlines);\nconst pendingFollowOnTopics = trimToLimit(staticData.pendingFollowOnTopics, cfg.editorialConfig.cacheLimits.pendingFollowOnTopics);\nconst avoidedTopics = cfg.editorialConfig.avoidedBaselineTopics.concat(pendingFollowOnTopics);\n\nconst memorySnapshot = {\n  postedUrls: staticData.postedUrls || [],\n  postedTitles: staticData.postedTitles || [],\n  postedContentHashes: staticData.postedContentHashes || [],\n  recentHeadlines\n};\n\nreturn [{\n  json: Object.assign({}, cfg, {\n    selectedFormat: chosenFormat,\n    selectedLeadAngle: chosenLeadAngle,\n    recentHeadlines,\n    avoidedTopics,\n    memorySnapshot\n  })\n}];"
+      },
+      "typeVersion": 2,
+      "position": [
+        -2320,
+        500
+      ],
+      "id": "n4",
+      "name": "Load Workflow Memory And Select Rotation",
+      "type": "n8n-nodes-base.code"
+    },
+    {
+      "parameters": {
+        "mode": "raw",
+        "jsonOutput": "={{ Object.assign({}, $json, { sourceTitle: $json.sourceTitle || \"\", sourceUrl: $json.sourceUrl || \"\", sourceContentHtml: $json.sourceContentHtml || \"\" }) }}",
+        "options": {}
+      },
+      "typeVersion": 3.4,
+      "position": [
+        -2100,
+        500
+      ],
+      "id": "n5",
+      "name": "Source Article Input",
+      "type": "n8n-nodes-base.set",
+      "notes": "Extension point: wire an RSS/scrape node ahead of this one to populate sourceTitle/sourceUrl/sourceContentHtml for multi-perspective mode. Defaults to empty (no source) for standard scheduled runs — see workflow.md."
+    },
+    {
+      "parameters": {
+        "jsCode": "// Inlined port of .specify/skills/source-content-extractor/scripts/source-extractor.js\nconst item = $input.first().json;\nconst SCRIPT_STYLE_RE = /<(script|style)[^>]*>[\\s\\S]*?<\\/\\1>/gi;\nconst TAG_RE = /<[^>]+>/g;\n\nfunction sanitizeToPlainText(html) {\n  if (!html) return '';\n  return String(html)\n    .replace(SCRIPT_STYLE_RE, ' ')\n    .replace(TAG_RE, ' ')\n    .replace(/&nbsp;/gi, ' ').replace(/&amp;/gi, '&').replace(/&lt;/gi, '<')\n    .replace(/&gt;/gi, '>').replace(/&quot;/gi, '\"').replace(/&#39;/gi, \"'\")\n    .replace(/\\s+/g, ' ').trim();\n}\n\nconst title = sanitizeToPlainText(item.sourceTitle);\nconst content = sanitizeToPlainText(item.sourceContentHtml);\nconst usable = title.length > 0 && content.length >= 40;\n\nreturn [{ json: Object.assign({}, item, { normalizedSourceArticle: { title, url: item.sourceUrl || '', content, usable } }) }];"
+      },
+      "typeVersion": 2,
+      "position": [
+        -1880,
+        500
+      ],
+      "id": "n6",
+      "name": "Sanitize Source Article",
+      "type": "n8n-nodes-base.code"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Inlined port of .specify/skills/topic-angle-selector/scripts/topic-angle-selector.js\nconst item = $input.first().json;\n\nfunction normalize(v) { return String(v || '').trim().toLowerCase(); }\n\nconst isMultiPerspective = item.selectedFormat === item.editorialConfig.multiPerspectiveFormatMarker;\n\nif (isMultiPerspective) {\n  const source = item.normalizedSourceArticle;\n  if (!source || !source.usable) {\n    return [{ json: Object.assign({}, item, { rejected: true, reason: 'source-unusable', generationMode: 'multiPerspective' }) }];\n  }\n}\n\nconst excluded = new Set((item.avoidedTopics || []).map(normalize));\nlet eligible = item.editorialConfig.topics.filter((t) => !excluded.has(normalize(t)));\nif (eligible.length === 0) eligible = item.editorialConfig.topics;\nconst topic = eligible[0];\n\nreturn [{\n  json: Object.assign({}, item, {\n    rejected: false,\n    generationMode: isMultiPerspective ? 'multiPerspective' : 'standard',\n    topic,\n    leadAngle: item.selectedLeadAngle,\n    format: item.selectedFormat\n  })\n}];"
+      },
+      "typeVersion": 2,
+      "position": [
+        -1660,
+        500
+      ],
+      "id": "n7",
+      "name": "Select Topic And Mode",
+      "type": "n8n-nodes-base.code"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "typeValidation": "strict"
+          },
+          "combinator": "and",
+          "conditions": [
+            {
+              "leftValue": "={{$json.rejected}}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true"
+              }
+            }
+          ]
+        }
+      },
+      "typeVersion": 2.2,
+      "position": [
+        -1440,
+        500
+      ],
+      "id": "n8",
+      "name": "Check Source Rejected",
+      "type": "n8n-nodes-base.if"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Inlined port of .specify/skills/workflow-observability-reporter/scripts/reporter.js (status: skipped_duplicate)\nconst item = $input.first().json;\nreturn [{\n  json: {\n    runId: item.runId, stage: 'topic-selection', status: 'skipped_duplicate',\n    failureCode: item.reason || 'source-unusable',\n    message: 'Run skipped: ' + (item.reason || 'source-unusable'),\n    timestamp: new Date().toISOString()\n  }\n}];"
+      },
+      "typeVersion": 2,
+      "position": [
+        -1220,
+        700
+      ],
+      "id": "n9",
+      "name": "Log Skipped Duplicate Or Rejected",
+      "type": "n8n-nodes-base.code"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "typeValidation": "strict"
+          },
+          "combinator": "and",
+          "conditions": [
+            {
+              "leftValue": "={{$json.generationMode}}",
+              "rightValue": "multiPerspective",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ]
+        }
+      },
+      "typeVersion": 2.2,
+      "position": [
+        -1000,
+        300
+      ],
+      "id": "n10",
+      "name": "Check Multi Perspective Mode",
+      "type": "n8n-nodes-base.if"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Inlined port of .specify/skills/multi-perspective-planner/scripts/multi-perspective-planner.js\nconst item = $input.first().json;\n\nconst PERSPECTIVES = [\n  { perspective: 'Executive', perspectiveInstructions: 'Write for CEOs, CIOs, CTOs, CISOs, boards, and government contractors. Focus on strategic risk, business impact, and the decisions leadership needs to make.' },\n  { perspective: 'Engineering', perspectiveInstructions: 'Write for DevSecOps and engineering teams. Focus on evidence automation, secure software development, continuous compliance, AI-assisted engineering, and operational excellence.' },\n  { perspective: 'Compliance', perspectiveInstructions: 'Write for compliance and risk teams. Focus on CMMC, NIST SP 800-171, DIBCAC assessments, False Claims Act implications, evidence generation, and audit readiness.' }\n];\n\nconst groupId = item.runId + '-multiPerspective';\n\nreturn PERSPECTIVES.map((p) => ({\n  json: Object.assign({}, item, {\n    format: p.perspective + ' perspective: ' + p.perspectiveInstructions,\n    perspective: p.perspective,\n    perspectiveInstructions: p.perspectiveInstructions,\n    groupId,\n    sourceReference: item.normalizedSourceArticle\n  })\n}));"
+      },
+      "typeVersion": 2,
+      "position": [
+        -780,
+        200
+      ],
+      "id": "n11",
+      "name": "Plan Multi-Perspective Requests",
+      "type": "n8n-nodes-base.code"
+    },
+    {
+      "parameters": {
+        "jsCode": "const item = $input.first().json;\nreturn [{ json: Object.assign({}, item, { perspective: null, perspectiveInstructions: null, groupId: null, sourceReference: null }) }];"
+      },
+      "typeVersion": 2,
+      "position": [
+        -560,
+        400
+      ],
+      "id": "n12",
+      "name": "Wrap Standard Generation Request",
+      "type": "n8n-nodes-base.code"
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "typeVersion": 3,
+      "position": [
+        -340,
+        300
+      ],
+      "id": "n13",
+      "name": "Batch Generation Requests",
+      "type": "n8n-nodes-base.splitInBatches"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Inlined port of .specify/skills/cmmc-editorial-prompt-builder/scripts/prompt-builder.js\nconst item = $input.first().json;\nconst ec = item.editorialConfig; const vc = item.validationConfig;\n\nconst systemPrompt = 'You are a professional journalist writing for ' + ec.brand + ', an editorial publication for ' + ec.audience + '.\\n' +\n'Voice: ' + ec.voiceDescription + '\\n' +\n'Word count requirement (STRICT — hard pass/fail gate, not a suggestion):\\n' +\n'- The body MUST contain EXACTLY ' + vc.paragraphCount + ' paragraph (\"p\") blocks, EXACTLY ' + vc.h2Count + ' \"h2\" blocks, EXACTLY ' + vc.statCount + ' \"stat\" block, EXACTLY ' + vc.pullquoteCount + ' \"pullquote\" block, and EXACTLY ' + vc.calloutCount + ' \"callout\" block. \"list\" blocks are optional.\\n' +\n'- Each paragraph MUST contain between ' + vc.paragraphWordMin + ' and ' + vc.paragraphWordMax + ' words.\\n' +\n'- The total word count across all \"p\" blocks MUST be between ' + vc.totalWordMin + ' and ' + vc.totalWordMax + ' words. There are no exceptions to this range.\\n' +\n'- Report your final total as an integer in the \"bodyWordCount\" field — it must match the actual sum across all \"p\" blocks.\\n' +\n'- Numbers: always sourced inline. Quotes: attribute precisely; never invent a quote from a specific named real person.\\n' +\n'- Tone: contrarian, thought-leadership. Avoid press-release/news-report phrasing.\\n' +\n'- Headline uniqueness: the headline MUST be clearly different from every headline in the recent headlines list below.\\n' +\n'- Subtitle requirement (STRICT, REQUIRED FIELD): you MUST include a non-empty \"subtitle\" field, 30-40 words, distinct from both \"dek\" and \"kicker\".\\n' +\n'You must return a single JSON object with ALL of: headline, slug, section, kicker, subtitle, dek, byline, date, readMinutes, bodyWordCount, body, altTitles (5+), linkedinPost (50+ chars), newsletterSummary (30+ chars), suggestedDiagrams (1+), followOnIdeas (5+). Do not return any text outside this JSON object.';\n\nlet userPrompt = 'Write a piece with the following parameters:\\nTopic: ' + item.topic + '\\nFormat: ' + item.format + '\\nLead angle: ' + item.leadAngle + '\\n\\n' +\n'IMPORTANT: avoid these already-covered subjects: ' + ((item.avoidedTopics || []).join('; ') || 'none') + '\\n' +\n'Recent headlines already used — be clearly distinct from all of these: ' + ((item.recentHeadlines || []).join(' | ') || 'none') + '\\n';\n\nif (item.perspective) {\n  const src = item.sourceReference || {};\n  userPrompt += '\\nYou are analyzing a source article as a senior federal technology journalist, CISO, CTO, CMMC assessor, software architect, and compliance expert. Do NOT summarize — analyze deeply.\\n' +\n    'Source article title: ' + (src.title || '') + '\\nSource article URL: ' + (src.url || '') + '\\n' +\n    \"This piece's perspective (\" + item.perspective + '): ' + item.perspectiveInstructions + '\\n';\n}\nuserPrompt += '\\nReturn ONLY the JSON object matching the schema above.';\n\nconst payload = {\n  model: item.providerConfig.model,\n  response_format: { type: 'json_object' },\n  max_tokens: item.providerConfig.maxTokens,\n  temperature: item.providerConfig.temperature,\n  messages: [ { role: 'system', content: systemPrompt }, { role: 'user', content: userPrompt } ]\n};\n\nreturn [{ json: Object.assign({}, item, { llmRequestBody: JSON.stringify(payload) }) }];"
+      },
+      "typeVersion": 2,
+      "position": [
+        -120,
+        300
+      ],
+      "id": "n14",
+      "name": "Build Editorial Prompt",
+      "type": "n8n-nodes-base.code"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{$json.providerConfig.baseUrl}}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "raw",
+        "rawContentType": "application/json",
+        "body": "={{$json.llmRequestBody}}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "typeVersion": 4.4,
+      "position": [
+        100,
+        300
+      ],
+      "id": "n15",
+      "name": "Call LLM Provider",
+      "type": "n8n-nodes-base.httpRequest",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "PLACEHOLDER_GROQ_CREDENTIAL_ID",
+          "name": "groqApiCredential"
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000
+    },
+    {
+      "parameters": {
+        "mode": "combine",
+        "combinationMode": "mergeByPosition",
+        "options": {}
+      },
+      "typeVersion": 3,
+      "position": [
+        320,
+        300
+      ],
+      "id": "n15b",
+      "name": "Combine LLM Response With Request",
+      "type": "n8n-nodes-base.merge"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Inlined port of .specify/skills/article-response-normalizer/scripts/normalize-article.js\nconst item = $input.first().json;\nconst raw = item.choices && item.choices[0] && item.choices[0].message ? item.choices[0].message.content : '';\nconst upstream = item;\n\nfunction asArray(val) {\n  if (Array.isArray(val)) return val;\n  if (typeof val === 'string') return val.split(/\\r?\\n|\\|/).map((s) => s.trim()).filter(Boolean);\n  return [];\n}\nfunction pickField(data, keys) {\n  for (const k of keys) if (data[k] !== undefined && data[k] !== null && data[k] !== '') return data[k];\n  return undefined;\n}\nfunction countParagraphWords(body) {\n  if (!Array.isArray(body)) return 0;\n  return body.filter((b) => b && b.type === 'p' && typeof b.text === 'string')\n    .reduce((total, b) => total + b.text.trim().split(/\\s+/).filter(Boolean).length, 0);\n}\n\nlet parsed;\ntry { parsed = JSON.parse(raw); } catch (err) {\n  return [{ json: Object.assign({}, upstream, { normalizationValid: false, normalizationError: 'invalid_json: ' + err.message, article: null }) }];\n}\nif (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {\n  return [{ json: Object.assign({}, upstream, { normalizationValid: false, normalizationError: 'invalid_shape', article: null }) }];\n}\n\nconst body = Array.isArray(parsed.body) ? parsed.body : (Array.isArray(parsed.content) ? parsed.content : (Array.isArray(parsed.article) ? parsed.article : (Array.isArray(parsed.sections) ? parsed.sections : [])));\nconst calculatedBodyWordCount = countParagraphWords(body);\n\nconst article = {\n  headline: parsed.headline || '', slug: parsed.slug || '', section: parsed.section || '',\n  kicker: parsed.kicker || '', subtitle: parsed.subtitle || '', dek: parsed.dek || '',\n  byline: parsed.byline || upstream.editorialConfig.defaultByline, date: parsed.date || new Date().toISOString().slice(0, 10),\n  readMinutes: typeof parsed.readMinutes === 'number' ? parsed.readMinutes : Number(parsed.readMinutes) || 0,\n  bodyWordCount: calculatedBodyWordCount, body,\n  altTitles: asArray(pickField(parsed, ['altTitles', 'alternativeTitles', 'titleOptions', 'titles'])),\n  linkedinPost: pickField(parsed, ['linkedinPost', 'linkedInPost', 'linkedin_post']) || '',\n  newsletterSummary: pickField(parsed, ['newsletterSummary', 'newsletter_summary', 'digestSummary']) || '',\n  suggestedDiagrams: asArray(pickField(parsed, ['suggestedDiagrams', 'diagramIdeas', 'diagrams'])),\n  followOnIdeas: asArray(pickField(parsed, ['followOnIdeas', 'followOnArticles', 'relatedArticleIdeas']))\n};\n\nconst requiredFields = ['headline', 'slug', 'section', 'kicker', 'subtitle', 'dek', 'byline', 'date', 'readMinutes'];\nconst missing = requiredFields.filter((f) => !article[f]);\nconst normalizationValid = missing.length === 0 && Array.isArray(body) && body.length > 0;\n\nreturn [{ json: Object.assign({}, upstream, { normalizationValid, normalizationError: normalizationValid ? null : 'missing_fields: ' + missing.join(','), article }) }];"
+      },
+      "typeVersion": 2,
+      "position": [
+        540,
+        300
+      ],
+      "id": "n16",
+      "name": "Normalize Article Response",
+      "type": "n8n-nodes-base.code"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Inlined port of .specify/skills/article-blocks-to-html/scripts/blocks-to-html.js\nconst item = $input.first().json;\nconst SUPPORTED = new Set(['p','h2','h3','h4','stat','pullquote','list','callout']);\n\nfunction esc(v) { return String(v == null ? '' : v).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/\"/g,'&quot;').replace(/'/g,'&#39;'); }\nfunction render(b) {\n  switch (b.type) {\n    case 'p': return '<p>' + esc(b.text) + '</p>';\n    case 'h2': return '<h2>' + esc(b.text) + '</h2>';\n    case 'h3': return '<h3>' + esc(b.text) + '</h3>';\n    case 'h4': return '<h4>' + esc(b.text) + '</h4>';\n    case 'stat': return '<div class=\"stat\"><span class=\"stat-value\">' + esc(b.value) + '</span><span class=\"stat-label\">' + esc(b.label) + '</span></div>';\n    case 'pullquote': return '<blockquote>' + esc(b.text) + '</blockquote>';\n    case 'list': return '<ul>' + (b.items || []).map((i) => '<li>' + esc(i) + '</li>').join('') + '</ul>';\n    case 'callout': return '<div class=\"callout\">' + esc(b.text) + '</div>';\n    default: return null;\n  }\n}\n\nif (!item.normalizationValid) {\n  return [{ json: Object.assign({}, item, { htmlValid: false, html: null }) }];\n}\n\nconst body = item.article.body || [];\nconst errors = [];\nconst parts = [];\nbody.forEach((b, i) => {\n  if (!b || typeof b.type !== 'string') { errors.push('block ' + i + ' has no type'); return; }\n  if (!SUPPORTED.has(b.type)) { errors.push('block ' + i + ' unsupported type ' + b.type); return; }\n  parts.push(render(b));\n});\n\nif (errors.length > 0) {\n  return [{ json: Object.assign({}, item, { htmlValid: false, html: null, htmlErrors: errors }) }];\n}\n\nconst html = parts.join('\\n');\nreturn [{ json: Object.assign({}, item, { htmlValid: true, html }) }];"
+      },
+      "typeVersion": 2,
+      "position": [
+        760,
+        300
+      ],
+      "id": "n17",
+      "name": "Convert Blocks To HTML",
+      "type": "n8n-nodes-base.code"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Inlined port of .specify/skills/cmmc-oat-validator/scripts/oat-validator.js\nconst item = $input.first().json;\n\nif (!item.normalizationValid || !item.htmlValid) {\n  return [{ json: Object.assign({}, item, { oatPassed: false, oatErrors: [{ code: 'upstream_failure', message: item.normalizationError || (item.htmlErrors || []).join('; ') }] }) }];\n}\n\nconst article = item.article; const vc = item.validationConfig; const memory = item.memorySnapshot || {};\n\nfunction escapeRegex(s) { return String(s).replace(/[.*+?^${}()|[\\]\\\\]/g, '\\\\$&'); }\nfunction wholeTerm(term) { return new RegExp('(?<![a-zA-Z0-9])' + escapeRegex(term) + '(?![a-zA-Z0-9])', 'i'); }\nfunction normHeadline(h) { return String(h || '').toLowerCase().replace(/[^a-z0-9 ]/g, '').replace(/\\s+/g, ' ').trim(); }\nfunction normContent(c) { return String(c || '').toLowerCase().replace(/<[^>]+>/g, ' ').replace(/[^a-z0-9 ]/g, '').replace(/\\s+/g, ' ').trim(); }\nfunction simpleHash(s) { let h = 0; for (let i=0;i<s.length;i++) h=(Math.imul(31,h)+s.charCodeAt(i))|0; return (h>>>0).toString(16); }\nfunction wc(t) { const s=(t||'').trim(); return s ? s.split(/\\s+/).filter(Boolean).length : 0; }\nfunction sixWordOverlap(a, b) { const words=a.split(' ').filter(Boolean); for (let i=0;i<=words.length-6;i++){const w=words.slice(i,i+6).join(' '); if (w && b.includes(w)) return true;} return false; }\n\nconst errors = [];\n\nif (!article.headline || article.headline.trim().length < 5) errors.push({ code: 'headline_too_short', message: 'headline must be at least 5 characters' });\nif (!/^[a-z0-9]+(-[a-z0-9]+)*$/.test(article.slug || '')) errors.push({ code: 'invalid_slug', message: 'slug must be URL-safe' });\n\nconst counts = { p: 0, h2: 0, stat: 0, pullquote: 0, callout: 0 };\nconst paraCounts = [];\n(article.body || []).forEach((b) => { if (b.type in counts) counts[b.type]++; if (b.type === 'p') paraCounts.push(wc(b.text)); });\nif (counts.p !== vc.paragraphCount) errors.push({ code: 'wrong_paragraph_count', message: 'expected ' + vc.paragraphCount + ' p blocks, found ' + counts.p });\nif (counts.h2 !== vc.h2Count) errors.push({ code: 'wrong_h2_count', message: 'expected ' + vc.h2Count + ' h2 blocks, found ' + counts.h2 });\nif (counts.stat !== vc.statCount) errors.push({ code: 'wrong_stat_count', message: 'expected ' + vc.statCount + ' stat block' });\nif (counts.pullquote !== vc.pullquoteCount) errors.push({ code: 'wrong_pullquote_count', message: 'expected ' + vc.pullquoteCount + ' pullquote block' });\nif (counts.callout !== vc.calloutCount) errors.push({ code: 'wrong_callout_count', message: 'expected ' + vc.calloutCount + ' callout block' });\nparaCounts.forEach((c, i) => { if (c < vc.paragraphWordMin || c > vc.paragraphWordMax) errors.push({ code: 'paragraph_word_count_out_of_range', message: 'paragraph ' + (i+1) + ' has ' + c + ' words' }); });\nconst total = paraCounts.reduce((a,b)=>a+b,0);\nconst tol = vc.wordCountTolerance || 0;\nif (total < vc.totalWordMin - tol || total > vc.totalWordMax + tol) errors.push({ code: 'total_word_count_out_of_range', message: 'total ' + total + ' outside ' + vc.totalWordMin + '-' + vc.totalWordMax });\nif (article.bodyWordCount !== total) errors.push({ code: 'body_word_count_mismatch', message: 'bodyWordCount mismatch' });\n\nif (!article.subtitle) errors.push({ code: 'missing_subtitle', message: 'subtitle is mandatory' });\nelse {\n  const sw = wc(article.subtitle);\n  if (sw < vc.subtitleWordMin || sw > vc.subtitleWordMax) errors.push({ code: 'subtitle_word_count_out_of_range', message: 'subtitle has ' + sw + ' words' });\n  if (article.subtitle.trim() === (article.dek||'').trim()) errors.push({ code: 'subtitle_matches_dek', message: 'subtitle must differ from dek' });\n  if (article.subtitle.trim() === (article.kicker||'').trim()) errors.push({ code: 'subtitle_matches_kicker', message: 'subtitle must differ from kicker' });\n}\n\nconst searchable = [article.headline, article.subtitle, article.dek, item.topic].concat((article.body||[]).filter(b=>b.text).map(b=>b.text)).join(' ');\nconst matchedTerms = (vc.cmmcTerms||[]).filter((t)=>wholeTerm(t).test(searchable));\nif (matchedTerms.length === 0) errors.push({ code: 'not_cmmc_relevant', message: 'no approved CMMC term found' });\n\nconst normalizedIncoming = normHeadline(article.headline);\nconst bodyText = (article.body||[]).map(b=>b.text||'').join(' ');\nconst contentHash = simpleHash(normContent(bodyText));\nif (item.normalizedSourceArticle && item.normalizedSourceArticle.url && (memory.postedUrls||[]).includes(item.normalizedSourceArticle.url)) {\n  errors.push({ code: 'duplicate_source_url', message: 'source URL already posted' });\n}\n(memory.postedTitles||[]).forEach((stored) => { if (normHeadline(stored) === normalizedIncoming) errors.push({ code: 'duplicate_exact_headline', message: 'exact headline duplicate' }); });\n(memory.postedTitles||[]).forEach((stored) => { if (sixWordOverlap(normalizedIncoming, normHeadline(stored))) errors.push({ code: 'duplicate_headline_overlap', message: 'six-word headline overlap' }); });\nif ((memory.postedContentHashes||[]).includes(contentHash)) errors.push({ code: 'duplicate_content_hash', message: 'content hash duplicate' });\n(memory.recentHeadlines||[]).forEach((h) => { if (sixWordOverlap(normalizedIncoming, normHeadline(h))) errors.push({ code: 'duplicate_recent_headline_similarity', message: 'recent headline overlap' }); });\n\nconst searchableLower = searchable.toLowerCase();\n(vc.prohibitedPatterns||[]).forEach((p) => { if (searchableLower.includes(p.toLowerCase())) errors.push({ code: 'prohibited_pattern', message: 'matched prohibited pattern: ' + p }); });\n\nconst ca = vc.companionAssets;\nif ((article.altTitles||[]).length < ca.minAltTitles) errors.push({ code: 'insufficient_alt_titles', message: 'need at least ' + ca.minAltTitles + ' alt titles' });\nif ((article.linkedinPost||'').length < ca.minLinkedinPostChars) errors.push({ code: 'linkedin_post_too_short', message: 'linkedinPost too short' });\nif ((article.newsletterSummary||'').length < ca.minNewsletterSummaryChars) errors.push({ code: 'newsletter_summary_too_short', message: 'newsletterSummary too short' });\nif ((article.suggestedDiagrams||[]).length < ca.minDiagrams) errors.push({ code: 'insufficient_diagrams', message: 'need at least ' + ca.minDiagrams + ' diagram(s)' });\nif ((article.followOnIdeas||[]).length < ca.minFollowOnIdeas) errors.push({ code: 'insufficient_follow_on_ideas', message: 'need at least ' + ca.minFollowOnIdeas + ' follow-on ideas' });\n\nreturn [{ json: Object.assign({}, item, { oatPassed: errors.length === 0, oatErrors: errors, oatContentHash: contentHash, oatMatchedTerms: matchedTerms }) }];"
+      },
+      "typeVersion": 2,
+      "position": [
+        980,
+        300
+      ],
+      "id": "n18",
+      "name": "Run OAT Validation",
+      "type": "n8n-nodes-base.code"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "typeValidation": "strict"
+          },
+          "combinator": "and",
+          "conditions": [
+            {
+              "leftValue": "={{$json.oatPassed}}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true"
+              }
+            }
+          ]
+        }
+      },
+      "typeVersion": 2.2,
+      "position": [
+        1200,
+        300
+      ],
+      "id": "n19",
+      "name": "Route OAT Pass Fail",
+      "type": "n8n-nodes-base.if"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Never forwards the article/debug content to publication — only a structured log event.\nconst item = $input.first().json;\nreturn [{\n  json: {\n    runId: item.runId, articleId: item.article ? item.article.slug : null, groupId: item.groupId || null,\n    stage: 'oat-validation', status: 'oat_failed', retryCount: 0,\n    failureCode: (item.oatErrors && item.oatErrors[0] && item.oatErrors[0].code) || 'unknown',\n    message: JSON.stringify((item.oatErrors||[]).map((e)=>e.message)).slice(0,300),\n    timestamp: new Date().toISOString()\n  }\n}];"
+      },
+      "typeVersion": 2,
+      "position": [
+        1420,
+        500
+      ],
+      "id": "n20",
+      "name": "Log OAT Failure",
+      "type": "n8n-nodes-base.code"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "typeValidation": "strict"
+          },
+          "combinator": "and",
+          "conditions": [
+            {
+              "leftValue": "={{$json.dryRun}}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true"
+              }
+            }
+          ]
+        }
+      },
+      "typeVersion": 2.2,
+      "position": [
+        1640,
+        100
+      ],
+      "id": "n21",
+      "name": "Check Dry Run Mode",
+      "type": "n8n-nodes-base.if"
+    },
+    {
+      "parameters": {
+        "jsCode": "const item = $input.first().json;\nreturn [{\n  json: {\n    runId: item.runId, articleId: item.article.slug, groupId: item.groupId || null,\n    stage: 'dry-run', status: 'dry_run_complete', retryCount: 0, failureCode: null,\n    message: 'Dry run — would publish \"' + item.article.headline + '\" as a draft. No WordPress call made, memory unchanged.',\n    timestamp: new Date().toISOString(), wouldPublish: { title: item.article.headline, categories: [item.wordpressConfig.categoryId] }\n  }\n}];"
+      },
+      "typeVersion": 2,
+      "position": [
+        1860,
+        0
+      ],
+      "id": "n22",
+      "name": "Log Dry Run Complete",
+      "type": "n8n-nodes-base.code"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{$json.wordpressConfig.baseUrl.replace(/\\/$/, \"\")}}/wp-json/wp/v2/posts",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpBasicAuth",
+        "sendBody": true,
+        "contentType": "raw",
+        "rawContentType": "application/json",
+        "body": "={{ JSON.stringify({ title: $json.article.headline, content: $json.html, slug: $json.article.slug, status: \"draft\", categories: [$json.wordpressConfig.categoryId], featured_media: $json.article.featuredMediaId || null, meta: { td_post_theme_settings: { td_subtitle: $json.article.subtitle || $json.article.dek || \"\" } } }) }}",
+        "options": {}
+      },
+      "typeVersion": 4.4,
+      "position": [
+        2080,
+        200
+      ],
+      "id": "n23",
+      "name": "Publish WordPress Draft",
+      "type": "n8n-nodes-base.httpRequest",
+      "credentials": {
+        "httpBasicAuth": {
+          "id": "PLACEHOLDER_WORDPRESS_CREDENTIAL_ID",
+          "name": "wordpressBasicAuthCredential"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "mode": "combine",
+        "combinationMode": "mergeByPosition",
+        "options": {}
+      },
+      "typeVersion": 3,
+      "position": [
+        2300,
+        200
+      ],
+      "id": "n23b",
+      "name": "Combine WordPress Response With Article",
+      "type": "n8n-nodes-base.merge"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Inlined port of .specify/skills/publication-memory-updater/scripts/memory-updater.js\n// Runs ONLY after Publish WordPress Draft has returned a successful response (n8n stops\n// this branch automatically on an HTTP error, since continueOnFail is not set) — resolves\n// research.md R9: caches are never updated before a confirmed publish.\nconst item = $input.first().json;\nconst wpResponse = { id: item.id, status: item.status };\nconst staticData = $getWorkflowStaticData('global');\n\nfunction appendDedupTrim(list, value, limit) {\n  const arr = Array.isArray(list) ? list.slice() : [];\n  if (value && !arr.includes(value)) arr.push(value);\n  return (typeof limit === 'number' && limit > 0 && arr.length > limit) ? arr.slice(arr.length - limit) : arr;\n}\n\nconst limits = item.editorialConfig.cacheLimits;\nconst followOnTitles = (item.article.followOnIdeas || []).map((i) => (typeof i === 'string' ? i : i.title)).filter(Boolean);\n\nstaticData.recentHeadlines = appendDedupTrim(staticData.recentHeadlines, item.article.headline, limits.recentHeadlines);\nstaticData.postedTitles = appendDedupTrim(staticData.postedTitles, item.article.headline, limits.duplicateHistory);\nstaticData.postedContentHashes = appendDedupTrim(staticData.postedContentHashes, item.oatContentHash, limits.duplicateHistory);\nif (item.normalizedSourceArticle && item.normalizedSourceArticle.url) {\n  staticData.postedUrls = appendDedupTrim(staticData.postedUrls, item.normalizedSourceArticle.url, limits.duplicateHistory);\n}\nlet pending = Array.isArray(staticData.pendingFollowOnTopics) ? staticData.pendingFollowOnTopics.slice() : [];\nfollowOnTitles.forEach((t) => { pending = appendDedupTrim(pending, t, limits.pendingFollowOnTopics); });\nstaticData.pendingFollowOnTopics = pending;\nstaticData.oatPassedCount = (Number.isFinite(staticData.oatPassedCount) ? staticData.oatPassedCount : 0) + 1;\nstaticData.lastPublicationTimestamp = new Date().toISOString();\n\nreturn [{\n  json: Object.assign({}, item, {\n    publicationRecord: { postId: wpResponse.id, status: wpResponse.status || 'draft', categoryId: item.wordpressConfig.categoryId, publishedAt: staticData.lastPublicationTimestamp, sourceUrl: (item.normalizedSourceArticle||{}).url || null, groupId: item.groupId || null }\n  })\n}];"
+      },
+      "typeVersion": 2,
+      "position": [
+        2520,
+        200
+      ],
+      "id": "n24",
+      "name": "Update Publication Memory",
+      "type": "n8n-nodes-base.code"
+    },
+    {
+      "parameters": {
+        "jsCode": "const item = $input.first().json;\nreturn [{\n  json: {\n    runId: item.runId, articleId: item.article.slug, groupId: item.groupId || null,\n    stage: 'publication', status: 'published', retryCount: 0, failureCode: null,\n    message: 'WordPress draft ' + item.publicationRecord.postId + ' created for \"' + item.article.headline + '\"',\n    timestamp: new Date().toISOString()\n  }\n}];"
+      },
+      "typeVersion": 2,
+      "position": [
+        2740,
+        200
+      ],
+      "id": "n25",
+      "name": "Log Published Event",
+      "type": "n8n-nodes-base.code"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Final execution summary — aggregates all Log* events seen this run via workflow static data counters.\nconst staticData = $getWorkflowStaticData('global');\nreturn [{\n  json: {\n    status: 'execution_report',\n    oatPassedCountAllTime: staticData.oatPassedCount || 0,\n    lastPublicationTimestamp: staticData.lastPublicationTimestamp || null,\n    recentHeadlines: staticData.recentHeadlines || [],\n    timestamp: new Date().toISOString()\n  }\n}];"
+      },
+      "typeVersion": 2,
+      "position": [
+        2960,
+        300
+      ],
+      "id": "n26",
+      "name": "Emit Execution Report",
+      "type": "n8n-nodes-base.code"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Schedule Trigger": {
+      "main": [
+        [
+          {
+            "node": "Load Workflow Configuration",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Manual Trigger": {
+      "main": [
+        [
+          {
+            "node": "Load Workflow Configuration",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Load Workflow Configuration": {
+      "main": [
+        [
+          {
+            "node": "Load Workflow Memory And Select Rotation",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Load Workflow Memory And Select Rotation": {
+      "main": [
+        [
+          {
+            "node": "Source Article Input",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Source Article Input": {
+      "main": [
+        [
+          {
+            "node": "Sanitize Source Article",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Sanitize Source Article": {
+      "main": [
+        [
+          {
+            "node": "Select Topic And Mode",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Select Topic And Mode": {
+      "main": [
+        [
+          {
+            "node": "Check Source Rejected",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Source Rejected": {
+      "main": [
+        [
+          {
+            "node": "Log Skipped Duplicate Or Rejected",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Check Multi Perspective Mode",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Multi Perspective Mode": {
+      "main": [
+        [
+          {
+            "node": "Plan Multi-Perspective Requests",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Wrap Standard Generation Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Plan Multi-Perspective Requests": {
+      "main": [
+        [
+          {
+            "node": "Batch Generation Requests",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wrap Standard Generation Request": {
+      "main": [
+        [
+          {
+            "node": "Batch Generation Requests",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Batch Generation Requests": {
+      "main": [
+        [
+          {
+            "node": "Emit Execution Report",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Build Editorial Prompt",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Editorial Prompt": {
+      "main": [
+        [
+          {
+            "node": "Call LLM Provider",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Combine LLM Response With Request",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Call LLM Provider": {
+      "main": [
+        [
+          {
+            "node": "Combine LLM Response With Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Combine LLM Response With Request": {
+      "main": [
+        [
+          {
+            "node": "Normalize Article Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalize Article Response": {
+      "main": [
+        [
+          {
+            "node": "Convert Blocks To HTML",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Convert Blocks To HTML": {
+      "main": [
+        [
+          {
+            "node": "Run OAT Validation",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Run OAT Validation": {
+      "main": [
+        [
+          {
+            "node": "Route OAT Pass Fail",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Route OAT Pass Fail": {
+      "main": [
+        [
+          {
+            "node": "Check Dry Run Mode",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Log OAT Failure",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Log OAT Failure": {
+      "main": [
+        [
+          {
+            "node": "Batch Generation Requests",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Dry Run Mode": {
+      "main": [
+        [
+          {
+            "node": "Log Dry Run Complete",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Publish WordPress Draft",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Combine WordPress Response With Article",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Log Dry Run Complete": {
+      "main": [
+        [
+          {
+            "node": "Batch Generation Requests",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Publish WordPress Draft": {
+      "main": [
+        [
+          {
+            "node": "Combine WordPress Response With Article",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Combine WordPress Response With Article": {
+      "main": [
+        [
+          {
+            "node": "Update Publication Memory",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Update Publication Memory": {
+      "main": [
+        [
+          {
+            "node": "Log Published Event",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Log Published Event": {
+      "main": [
+        [
+          {
+            "node": "Batch Generation Requests",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": false
+  },
+  "versionId": "generated-by-speckit-001-workflow-governance",
+  "meta": {
+    "instanceId": "REPLACE_WITH_YOUR_N8N_INSTANCE_ID"
+  },
+  "nodeGroups": [],
+  "id": "govconic-cmmc-content-publishing",
+  "tags": []
+}

@@ -1,0 +1,21 @@
+{
+  "name": "cmmc-content-publishing",
+  "version": "1.0.0",
+  "runtime": "n8n",
+  "steps": [
+    { "id": "load-config", "skill": "n8n-workflow-assembler" },
+    { "id": "load-context", "skill": "workflow-context-manager", "dependsOn": ["load-config"] },
+    { "id": "extract-source", "skill": "source-content-extractor", "dependsOn": ["load-context"] },
+    { "id": "select-topic", "skill": "topic-angle-selector", "dependsOn": ["load-context", "extract-source"] },
+    { "id": "plan-perspectives", "skill": "multi-perspective-planner", "dependsOn": ["select-topic"] },
+    { "id": "build-prompt", "skill": "cmmc-editorial-prompt-builder", "dependsOn": ["select-topic", "plan-perspectives"] },
+    { "id": "generate-article", "skill": "llm-content-generator", "dependsOn": ["build-prompt"] },
+    { "id": "normalize-article", "skill": "article-response-normalizer", "dependsOn": ["generate-article"] },
+    { "id": "render-html", "skill": "article-blocks-to-html", "dependsOn": ["normalize-article"] },
+    { "id": "validate-oat", "skill": "cmmc-oat-validator", "dependsOn": ["render-html"] },
+    { "id": "publish-draft", "skill": "wordpress-draft-publisher", "dependsOn": ["validate-oat"], "branch": "pass" },
+    { "id": "log-oat-failure", "skill": "workflow-observability-reporter", "dependsOn": ["validate-oat"], "branch": "fail" },
+    { "id": "update-memory", "skill": "publication-memory-updater", "dependsOn": ["publish-draft"] },
+    { "id": "log-published", "skill": "workflow-observability-reporter", "dependsOn": ["update-memory"] }
+  ]
+}

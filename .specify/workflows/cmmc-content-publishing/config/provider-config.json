@@ -1,0 +1,32 @@
+{
+  "$schema": "https://json-schema.org/draft-07/schema#",
+  "llm": {
+    "provider": "groq",
+    "baseUrl": "https://api.groq.com/openai/v1/chat/completions",
+    "model": "${GROQ_MODEL}",
+    "temperature": 0.7,
+    "maxTokens": 2000,
+    "timeoutMs": 30000,
+    "retryCount": 3,
+    "retryDelayMs": 5000,
+    "credentialName": "groqApiCredential",
+    "_comment": "model is resolved from the GROQ_MODEL environment variable at runtime; the literal '${GROQ_MODEL}' placeholder is never a real value and must be substituted by the n8n environment, never hardcoded here."
+  },
+  "wordpress": {
+    "baseUrl": "${WORDPRESS_BASE_URL}",
+    "categoryId": "${WORDPRESS_CATEGORY_ID}",
+    "defaultStatus": "draft",
+    "author": "${WORDPRESS_USERNAME}",
+    "credentialName": "wordpressBasicAuthCredential",
+    "_comment": "baseUrl/categoryId/author are resolved from environment variables at runtime; no staging or production URL is hardcoded in this file."
+  },
+  "dryRun": {
+    "envVar": "CMMC_WORKFLOW_DRY_RUN",
+    "default": false
+  },
+  "schedule": {
+    "envVar": "CMMC_SCHEDULE_ENABLED",
+    "default": false,
+    "intervalMinutes": 180
+  }
+}

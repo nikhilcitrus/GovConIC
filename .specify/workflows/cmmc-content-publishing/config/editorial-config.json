@@ -1,0 +1,48 @@
+{
+  "$schema": "https://json-schema.org/draft-07/schema#",
+  "brand": "GovConIC — The Government Contractor Intelligence Center",
+  "audience": "mid-market government contractors with approximately $20M-$500M in revenue",
+  "voiceDescription": "authoritative, analytical, opinionated, evidence-conscious, practical, non-promotional, focused on government contractors — not generic cybersecurity content, not vendor press-release language",
+  "defaultByline": "Shahid Shah",
+  "categoryId": 52,
+  "formats": [
+    "cmmc-policy-or-requirement-update",
+    "step-by-step-explainer",
+    "contrarian-analysis",
+    "data-driven-analysis",
+    "composite-contractor-case-study",
+    "narrow-cmmc-qa",
+    "multi-perspective-source-analysis"
+  ],
+  "multiPerspectiveFormatMarker": "multi-perspective-source-analysis",
+  "leadAngles": ["Unobvious", "Under the Radar", "Innovative"],
+  "topics": [
+    "SPRS score submission accuracy",
+    "POA&M closure timelines under CMMC Level 2",
+    "C3PAO surveillance assessment findings trends",
+    "Scoping guide boundary disputes for CUI enclaves",
+    "DIBCAC assessment readiness gaps",
+    "False Claims Act exposure from inaccurate self-attestations",
+    "Cyber AB certification backlog impact on small contractors",
+    "NIST SP 800-171 control inheritance from cloud providers",
+    "CMMC Level 3 assessment cost drivers",
+    "Subcontractor flow-down compliance verification burden"
+  ],
+  "avoidedBaselineTopics": [
+    "What is CMMC 2.0",
+    "CMMC compliance levels overview",
+    "CMMC assessment process basics",
+    "CMMC certification cost overview"
+  ],
+  "sourceExtraction": {
+    "selectors": {
+      "title": "h1",
+      "content": ".td-post-content"
+    }
+  },
+  "cacheLimits": {
+    "recentHeadlines": 15,
+    "pendingFollowOnTopics": 30,
+    "duplicateHistory": 300
+  }
+}

@@ -1,0 +1,36 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://govconic.internal/schemas/wordpress-request.schema.json",
+  "title": "WordPress Draft Creation Request",
+  "description": "Payload built by wordpress-draft-publisher and POSTed to {WORDPRESS_BASE_URL}/wp-json/wp/v2/posts. Status MUST always be 'draft' in this workflow; nothing in this schema permits publishing directly.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["title", "content", "slug", "status", "categories", "meta"],
+  "properties": {
+    "title": { "type": "string", "minLength": 5 },
+    "content": { "type": "string", "minLength": 1 },
+    "slug": { "type": "string", "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$" },
+    "status": { "const": "draft" },
+    "categories": {
+      "type": "array",
+      "items": { "type": "integer" },
+      "minItems": 1
+    },
+    "featured_media": {
+      "type": ["integer", "null"]
+    },
+    "meta": {
+      "type": "object",
+      "required": ["td_post_theme_settings"],
+      "properties": {
+        "td_post_theme_settings": {
+          "type": "object",
+          "required": ["td_subtitle"],
+          "properties": {
+            "td_subtitle": { "type": "string", "minLength": 1 }
+          }
+        }
+      }
+    }
+  }
+}

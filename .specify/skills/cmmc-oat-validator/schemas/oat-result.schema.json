@@ -1,0 +1,49 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://govconic.internal/schemas/oat-result.schema.json",
+  "title": "ValidationResult (OAT Result)",
+  "description": "Output of cmmc-oat-validator. See specs/001-workflow-governance/data-model.md#validationresult-oat-result.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["passed", "errors", "warnings", "metrics", "normalizedArticle"],
+  "properties": {
+    "passed": { "type": "boolean" },
+    "errors": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["code", "message"],
+        "properties": {
+          "code": { "type": "string" },
+          "message": { "type": "string" },
+          "field": { "type": "string" }
+        }
+      }
+    },
+    "warnings": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["code", "message", "severity"],
+        "properties": {
+          "code": { "type": "string" },
+          "message": { "type": "string" },
+          "severity": { "const": "warning" }
+        }
+      }
+    },
+    "metrics": {
+      "type": "object",
+      "properties": {
+        "paragraphCount": { "type": "integer" },
+        "h2Count": { "type": "integer" },
+        "statCount": { "type": "integer" },
+        "pullquoteCount": { "type": "integer" },
+        "calloutCount": { "type": "integer" },
+        "paragraphWordCount": { "type": "integer" },
+        "matchedCmmcTerms": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "normalizedArticle": { "type": "object" }
+  }
+}

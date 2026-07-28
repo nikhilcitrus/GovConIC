@@ -1,0 +1,18 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://govconic.internal/schemas/wordpress-response.schema.json",
+  "title": "WordPress Draft Creation Response (Normalized)",
+  "description": "Normalized shape produced by wordpress-draft-publisher after a successful REST API call, mapped into a PublicationRecord (see data-model.md#publicationrecord). The raw WordPress REST response contains additional fields; only these are guaranteed to downstream skills.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["postId", "status", "categoryId", "subtitleWritten", "publishedAt"],
+  "properties": {
+    "postId": { "type": "integer" },
+    "status": { "const": "draft" },
+    "categoryId": { "type": "integer" },
+    "subtitleWritten": { "type": "string" },
+    "publishedAt": { "type": "string", "format": "date-time" },
+    "sourceUrl": { "type": ["string", "null"] },
+    "groupId": { "type": ["string", "null"] }
+  }
+}
