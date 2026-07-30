@@ -33,5 +33,6 @@
 ## Notes
 
 - This checklist was re-validated after `spec.md` was rewritten from a generic placeholder governance draft into the concrete CMMC content-publishing specification — the only initiative currently occupying the `001-workflow-governance` feature branch.
-- Word-count/block-count rule (FR-028) is the single canonical resolution of several internally contradictory rules found in the source n8n workflow (`n8n/cmmc prompt development.json`); see `research.md` for the full contradiction-by-contradiction analysis once Phase 3 planning is complete.
-- The specification is ready for planning (`plan.md`, `research.md`, `data-model.md`).
+- Word-count/block-count rule (FR-028) is the single canonical resolution of several internally contradictory rules found in the source n8n workflow (`n8n/cmmc prompt development.json`); see `research.md` for the full 16-item contradiction-by-contradiction analysis (Phase 3 planning is now complete).
+- Re-validated via `/speckit-specify` on 2026-07-30 while reconciling this already-implemented feature with the restored official Spec Kit tooling: no `[NEEDS CLARIFICATION]` markers present, all checklist items still pass, `.specify/feature.json` corrected to point at `specs/001-workflow-governance` (it had drifted to a stale, now-deleted `specs/002-cmmc-prompt-live-workflow` reference).
+- Planning, tasks, 13 reusable skills, the assembled n8n workflow, and documentation are already implemented (see `plan.md`, `tasks.md`, `.specify/skills/`, `n8n/generated/`); this specification is not just ready for planning, planning and implementation are complete against it.
